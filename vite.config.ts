@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
-  base: '/Smart-Agro-Market/',
+  base: '/smart-agro-market/',
   plugins: [
     react(),
     tailwindcss(),
