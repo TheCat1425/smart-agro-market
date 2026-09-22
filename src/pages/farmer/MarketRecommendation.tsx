@@ -10,7 +10,7 @@ import {
   ResponsiveContainer, Cell, Legend
 } from 'recharts';
 import {
-  analyzeMarkets,
+  analyzeMarkets as analyzeMarketsLocal,
   validateInput,
   farmerLocations,
   SCORE_WEIGHTS,
@@ -19,6 +19,76 @@ import {
   type RecommendationResult,
 } from '../../data/recommendationEngine';
 import { commodities, formatBDT } from '../../data/mockData';
+import { checkApiAvailability } from '../../api/apiStatus';
+import { analyzeRecommendation } from '../../api/recommendations';
+import type { ApiRecommendationResult, ApiMarketAnalysis } from '../../api/types';
+import DemoModeBanner from '../../components/DemoModeBanner';
+
+// Map commodity string IDs to numeric IDs for the API
+const COMMODITY_ID_MAP: Record<string, number> = { c1: 1, c2: 2, c3: 3, c4: 4, c5: 5 };
+
+/**
+ * Convert API recommendation response to the frontend RecommendationResult type.
+ * This allows the existing UI to render API data without any JSX changes.
+ */
+function mapApiToResult(api: ApiRecommendationResult, input: FarmerInput): RecommendationResult {
+  const mapAnalysis = (a: ApiMarketAnalysis): MarketAnalysis => {
+    // Find matching commodity from local data for the emoji/name display
+    const commodity = commodities.find(c => c.id === input.commodityId) || commodities[0];
+    return {
+      market: {
+        id: `m${a.market.id}`,
+        name: a.market.name,
+        nameBn: '',
+        district: a.market.district,
+        districtBn: '',
+        lat: 0,
+        lng: 0,
+        type: 'Wholesale',
+        dailyTraders: 0,
+      },
+      commodity,
+      currentPrice: a.currentPrice,
+      predictedPrice: a.predictedPrice,
+      confidence: a.confidence,
+      priceTrend: a.priceTrend,
+      quantity: a.quantity,
+      grossRevenue: a.grossRevenue,
+      estimatedDistanceKm: a.estimatedDistanceKm,
+      estimatedTransportCost: a.estimatedTransportCost,
+      platformFee: a.platformFee,
+      otherCosts: a.otherCosts,
+      totalCosts: a.totalCosts,
+      netReturn: a.netReturn,
+      profitPerKg: a.profitPerKg,
+      score: a.score,
+      scoreBreakdown: a.scoreBreakdown,
+      meetsMinPrice: a.meetsMinPrice,
+      isRecommended: a.isRecommended,
+      rank: a.rank,
+    };
+  };
+
+  const analyses = api.analyses.map(mapAnalysis);
+  const recommended = api.recommended ? mapAnalysis(api.recommended) : null;
+
+  return {
+    analyses,
+    recommended,
+    anyMeetsMinPrice: api.anyMeetsMinPrice,
+    insight: api.insight,
+    aiExplanation: [
+      `Analysis performed by backend API using live database data.`,
+      `${analyses.length} markets analyzed for ${commodity(input.commodityId)} with ${input.quantity} kg.`,
+      api.insight,
+    ],
+    farmerInput: input,
+  };
+}
+
+function commodity(id: string): string {
+  return commodities.find(c => c.id === id)?.name || 'Unknown';
+}
 
 // ── Default values for demo ──
 function getDefaultHarvestDate(): string {
@@ -42,6 +112,8 @@ export default function MarketRecommendation() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [showScoreExplainer, setShowScoreExplainer] = useState(false);
+  const [isDemo, setIsDemo] = useState(false);
+  const [apiError, setApiError] = useState<string | null>(null);
 
   const handleChange = (field: keyof FarmerInput, value: string | number) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
@@ -53,7 +125,7 @@ export default function MarketRecommendation() {
     });
   };
 
-  const handleAnalyze = () => {
+  const handleAnalyze = async () => {
     const validationErrors = validateInput(formData);
     if (validationErrors.length > 0) {
       const errMap: Record<string, string> = {};
@@ -64,13 +136,40 @@ export default function MarketRecommendation() {
 
     setIsAnalyzing(true);
     setErrors({});
+    setApiError(null);
 
-    // Simulate a brief analysis delay for UX
-    setTimeout(() => {
-      const r = analyzeMarkets(formData);
+    try {
+      const apiAvailable = await checkApiAvailability();
+
+      if (apiAvailable) {
+        // ── API available: backend is source of truth ──
+        const numericCommodityId = COMMODITY_ID_MAP[formData.commodityId] || 1;
+        const apiResult = await analyzeRecommendation({
+          commodityId: numericCommodityId,
+          quantity: formData.quantity,
+          farmerLocation: formData.farmerLocation,
+          harvestDate: formData.harvestDate,
+          minimumAcceptablePrice: formData.minPricePerKg,
+        });
+        const r = mapApiToResult(apiResult, formData);
+        setResult(r);
+        setIsDemo(false);
+      } else {
+        // ── API unavailable: local fallback ──
+        const r = analyzeMarketsLocal(formData);
+        setResult(r);
+        setIsDemo(true);
+      }
+    } catch (err) {
+      // API call failed — fall back to local calculation
+      console.warn('[MarketRecommendation] API failed, using local fallback:', err);
+      setApiError(err instanceof Error ? err.message : 'API request failed');
+      const r = analyzeMarketsLocal(formData);
       setResult(r);
+      setIsDemo(true);
+    } finally {
       setIsAnalyzing(false);
-    }, 600);
+    }
   };
 
   // Chart data
@@ -87,6 +186,13 @@ export default function MarketRecommendation() {
 
   return (
     <div className="space-y-6 animate-[fade-in_0.5s_ease-out]">
+      {/* Demo Mode Banner */}
+      <DemoModeBanner isDemo={isDemo} />
+      {apiError && (
+        <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-2.5 text-xs text-red-700">
+          API error: {apiError} — showing local calculation instead.
+        </div>
+      )}
       {/* ═══ HERO HEADER ═══ */}
       <div className="bg-gradient-to-r from-primary-600 via-primary-700 to-teal-600 rounded-2xl p-6 lg:p-8 text-white relative overflow-hidden">
         <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full -translate-y-1/3 translate-x-1/4" />

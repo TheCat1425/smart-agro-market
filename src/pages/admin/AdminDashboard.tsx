@@ -1,10 +1,14 @@
 import React from 'react';
-import { Users, ShoppingBag, DollarSign, Store, TrendingUp, Package, MapPin, BarChart3 } from 'lucide-react';
+import { Users, ShoppingBag, DollarSign, Store, TrendingUp, Package, MapPin, BarChart3, Loader2 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell, Legend } from 'recharts';
 import StatCard from '../../components/StatCard';
 import ChartCard from '../../components/ChartCard';
 import Badge from '../../components/Badge';
+import DemoModeBanner from '../../components/DemoModeBanner';
 import { adminDashboardStats, farmers, markets, commodities, products, orders, priceData, formatBDT } from '../../data/mockData';
+import { useApiData } from '../../hooks/useApiData';
+import { fetchAdminStats, fetchDistrictRevenue } from '../../api/admin';
+import type { ApiAdminStats, ApiDistrictRevenue } from '../../api/types';
 
 const userGrowth = [
   { month: 'Apr', farmers: 85, consumers: 520 },
@@ -15,7 +19,7 @@ const userGrowth = [
   { month: 'Sep', farmers: 156, consumers: 1240 },
 ];
 
-const revenueByDistrict = [
+const mockRevenueByDistrict = [
   { district: 'Rajshahi', revenue: 2800000 },
   { district: 'Naogaon', revenue: 1500000 },
   { district: 'Pabna', revenue: 2100000 },
@@ -31,10 +35,52 @@ const categoryDistribution = [
 ];
 
 export default function AdminDashboard() {
-  const stats = adminDashboardStats;
+  // Fetch stats from API with mock fallback
+  const { data: apiStats, loading: statsLoading, isDemo: statsDemo } = useApiData(
+    () => fetchAdminStats(),
+    null as ApiAdminStats | null
+  );
+
+  // Fetch district revenue from API with mock fallback
+  const { data: apiDistrictRevenue, isDemo: districtDemo } = useApiData(
+    () => fetchDistrictRevenue(),
+    [] as ApiDistrictRevenue[]
+  );
+
+  const isDemo = statsDemo || districtDemo;
+
+  // Map API stats to the shape StatCards expect, or use mock
+  const stats = apiStats
+    ? {
+        totalFarmers: apiStats.totalFarmers,
+        farmersChange: 0,
+        totalConsumers: apiStats.totalConsumers,
+        consumersChange: 0,
+        totalTransactions: apiStats.totalOrders,
+        transactionsChange: 0,
+        totalRevenue: apiStats.totalRevenue,
+        revenueChange: 0,
+      }
+    : adminDashboardStats;
+
+  // District revenue: API or mock
+  const revenueByDistrict = apiDistrictRevenue.length > 0
+    ? apiDistrictRevenue.map(d => ({ district: d.district, revenue: d.revenue }))
+    : mockRevenueByDistrict;
 
   return (
     <div className="space-y-6 animate-[fade-in_0.5s_ease-out]">
+      {/* Demo Mode Banner */}
+      <DemoModeBanner isDemo={isDemo} />
+
+      {/* Loading State */}
+      {statsLoading && (
+        <div className="bg-white rounded-2xl p-8 shadow-sm border border-gray-100 flex items-center justify-center gap-3">
+          <Loader2 className="w-6 h-6 text-primary-500 animate-spin" />
+          <p className="text-sm text-gray-500">Loading dashboard data...</p>
+        </div>
+      )}
+
       {/* Admin Header */}
       <div className="bg-gradient-to-r from-slate-800 via-slate-900 to-slate-800 rounded-2xl p-6 lg:p-8 text-white relative overflow-hidden">
         <div className="absolute top-0 right-0 w-64 h-64 bg-primary-500/10 rounded-full -translate-y-1/2 translate-x-1/2" />

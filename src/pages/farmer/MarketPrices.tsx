@@ -1,23 +1,79 @@
 import React, { useState } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
+import { Loader2 } from 'lucide-react';
 import PriceCard from '../../components/PriceCard';
 import ChartCard from '../../components/ChartCard';
 import MarketCard from '../../components/MarketCard';
+import DemoModeBanner from '../../components/DemoModeBanner';
 import { priceData, historicalPrices, commodities, markets, getCommodity, getMarket, formatBDT } from '../../data/mockData';
+import { useApiData } from '../../hooks/useApiData';
+import { fetchLatestPrices } from '../../api/marketPrices';
+import type { ApiMarketPrice } from '../../api/types';
 
 const COLORS = ['#16a34a', '#2563eb', '#f59e0b', '#dc2626', '#8b5cf6'];
+
+/**
+ * Convert API market prices to the same shape the existing PriceCard expects.
+ * Returns a unified array that works with the existing filter/render logic.
+ */
+function mapApiPricesToLocal(apiPrices: ApiMarketPrice[]): Array<{
+  commodityId: string;
+  marketId: string;
+  price: number;
+  previousPrice: number;
+  unit: string;
+  commodityName: string;
+  marketName: string;
+}> {
+  return apiPrices.map(p => ({
+    commodityId: String(p.commodity_id),
+    marketId: String(p.market_id),
+    price: p.price,
+    previousPrice: p.min_price ?? p.price, // Use min_price as "previous" for trend arrow
+    unit: p.unit,
+    commodityName: p.commodity_name,
+    marketName: p.market_name,
+  }));
+}
 
 export default function MarketPrices() {
   const [selectedCommodity, setSelectedCommodity] = useState('all');
   const [selectedMarket, setSelectedMarket] = useState('all');
 
-  const filteredPrices = priceData.filter(p =>
-    (selectedCommodity === 'all' || p.commodityId === selectedCommodity) &&
-    (selectedMarket === 'all' || p.marketId === selectedMarket)
+  // Fetch latest prices from API with mock fallback
+  const { data: apiPrices, loading, isDemo } = useApiData(
+    () => fetchLatestPrices(),
+    [] as ApiMarketPrice[]
   );
+
+  // Choose data source: API mapped data or mock data
+  const useMock = isDemo || apiPrices.length === 0;
+  const livePrices = useMock ? null : mapApiPricesToLocal(apiPrices);
+
+  // Filter logic — works on both mock and API data
+  const filteredPrices = useMock
+    ? priceData.filter(p =>
+        (selectedCommodity === 'all' || p.commodityId === selectedCommodity) &&
+        (selectedMarket === 'all' || p.marketId === selectedMarket)
+      )
+    : livePrices!.filter(p =>
+        (selectedCommodity === 'all' || p.commodityId === selectedCommodity) &&
+        (selectedMarket === 'all' || p.marketId === selectedMarket)
+      );
 
   return (
     <div className="space-y-6 animate-[fade-in_0.5s_ease-out]">
+      {/* Demo Mode Banner */}
+      <DemoModeBanner isDemo={isDemo} />
+
+      {/* Loading State */}
+      {loading && (
+        <div className="bg-white rounded-2xl p-12 shadow-sm border border-gray-100 flex flex-col items-center gap-3">
+          <Loader2 className="w-8 h-8 text-primary-500 animate-spin" />
+          <p className="text-sm text-gray-500">Loading market prices...</p>
+        </div>
+      )}
+
       {/* Filters */}
       <div className="bg-white rounded-2xl p-7 shadow-sm border border-gray-100">
         <div className="flex flex-wrap gap-4">
@@ -51,24 +107,44 @@ export default function MarketPrices() {
       </div>
 
       {/* Price Cards Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-        {filteredPrices.map((p, i) => {
-          const commodity = getCommodity(p.commodityId);
-          const market = getMarket(p.marketId);
-          if (!commodity || !market) return null;
-          return (
-            <PriceCard
-              key={i}
-              commodityName={commodity.name}
-              commodityEmoji={commodity.image}
-              price={p.price}
-              previousPrice={p.previousPrice}
-              unit={p.unit}
-              marketName={market.name}
-            />
-          );
-        })}
-      </div>
+      {!loading && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          {filteredPrices.map((p, i) => {
+            if (useMock) {
+              // Mock data path — use getCommodity/getMarket lookup
+              const mockP = p as typeof priceData[0];
+              const commodity = getCommodity(mockP.commodityId);
+              const market = getMarket(mockP.marketId);
+              if (!commodity || !market) return null;
+              return (
+                <PriceCard
+                  key={i}
+                  commodityName={commodity.name}
+                  commodityEmoji={commodity.image}
+                  price={mockP.price}
+                  previousPrice={mockP.previousPrice}
+                  unit={mockP.unit}
+                  marketName={market.name}
+                />
+              );
+            } else {
+              // API data path — names already embedded
+              const apiP = p as ReturnType<typeof mapApiPricesToLocal>[0];
+              return (
+                <PriceCard
+                  key={i}
+                  commodityName={apiP.commodityName}
+                  commodityEmoji="🌾"
+                  price={apiP.price}
+                  previousPrice={apiP.previousPrice}
+                  unit={apiP.unit}
+                  marketName={apiP.marketName}
+                />
+              );
+            }
+          })}
+        </div>
+      )}
 
       {/* Price Trend Chart */}
       <ChartCard

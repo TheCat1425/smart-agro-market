@@ -1,8 +1,34 @@
 import React, { useState } from 'react';
-import { Search, Filter, SlidersHorizontal } from 'lucide-react';
+import { Search, Filter, SlidersHorizontal, Loader2 } from 'lucide-react';
 import ProductCard from '../../components/ProductCard';
-import { products, commodities } from '../../data/mockData';
+import DemoModeBanner from '../../components/DemoModeBanner';
+import { products as mockProducts, commodities } from '../../data/mockData';
 import { useCart } from '../../context/CartContext';
+import { useApiData } from '../../hooks/useApiData';
+import { fetchProducts } from '../../api/products';
+import type { ApiProduct } from '../../api/types';
+
+/**
+ * Convert API products to the shape the existing ProductCard expects.
+ */
+function mapApiProduct(p: ApiProduct) {
+  return {
+    id: String(p.id),
+    farmerId: String(p.farmer_id),
+    commodityId: `c${p.commodity_id}`,
+    name: p.name,
+    nameBn: p.name, // API doesn't have Bangla name yet
+    description: p.description || '',
+    price: p.price,
+    unit: p.unit,
+    quantity: p.quantity_available,
+    image: p.image_url || '🌾',
+    organic: p.organic === 1,
+    harvestDate: p.created_at.split('T')[0],
+    rating: 4.5, // Not in API yet
+    reviews: 0,
+  };
+}
 
 export default function BrowseProducts() {
   const { addToCart } = useCart();
@@ -10,20 +36,35 @@ export default function BrowseProducts() {
   const [category, setCategory] = useState('all');
   const [sortBy, setSortBy] = useState('default');
 
-  let filtered = products.filter(p => {
+  // Fetch products from API with mock fallback
+  const { data: apiProducts, loading, isDemo } = useApiData(
+    () => fetchProducts({ status: 'ACTIVE' }),
+    [] as ApiProduct[]
+  );
+
+  // Choose data source
+  const useMock = isDemo || apiProducts.length === 0;
+  const productList = useMock
+    ? mockProducts
+    : apiProducts.map(mapApiProduct);
+
+  let filtered = productList.filter(p => {
     const matchesSearch = p.name.toLowerCase().includes(search.toLowerCase()) ||
-                          p.nameBn.includes(search) ||
+                          ('nameBn' in p ? (p as typeof mockProducts[0]).nameBn.includes(search) : false) ||
                           p.description.toLowerCase().includes(search.toLowerCase());
     const matchesCategory = category === 'all' || p.commodityId === category;
     return matchesSearch && matchesCategory;
   });
 
-  if (sortBy === 'price-low') filtered.sort((a, b) => a.price - b.price);
-  if (sortBy === 'price-high') filtered.sort((a, b) => b.price - a.price);
-  if (sortBy === 'rating') filtered.sort((a, b) => b.rating - a.rating);
+  if (sortBy === 'price-low') filtered = [...filtered].sort((a, b) => a.price - b.price);
+  if (sortBy === 'price-high') filtered = [...filtered].sort((a, b) => b.price - a.price);
+  if (sortBy === 'rating') filtered = [...filtered].sort((a, b) => b.rating - a.rating);
 
   return (
     <div className="space-y-6 animate-[fade-in_0.5s_ease-out]">
+      {/* Demo Mode Banner */}
+      <DemoModeBanner isDemo={isDemo} />
+
       {/* Hero Banner */}
       <div className="gradient-hero rounded-2xl p-6 lg:p-8 text-white relative overflow-hidden">
         <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGNpcmNsZSBjeD0iMjAiIGN5PSIyMCIgcj0iMSIgZmlsbD0icmdiYSgyNTUsMjU1LDI1NSwwLjA1KSIvPjwvc3ZnPg==')] opacity-50" />
@@ -88,17 +129,27 @@ export default function BrowseProducts() {
         </div>
       </div>
 
+      {/* Loading State */}
+      {loading && (
+        <div className="bg-white rounded-2xl p-12 shadow-sm border border-gray-100 flex flex-col items-center gap-3">
+          <Loader2 className="w-8 h-8 text-primary-500 animate-spin" />
+          <p className="text-sm text-gray-500">Loading products...</p>
+        </div>
+      )}
+
       {/* Results count */}
-      <p className="text-sm text-gray-500">{filtered.length} products found</p>
+      {!loading && <p className="text-sm text-gray-500">{filtered.length} products found</p>}
 
       {/* Products Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-        {filtered.map(product => (
-          <ProductCard key={product.id} product={product} onAddToCart={addToCart} />
-        ))}
-      </div>
+      {!loading && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          {filtered.map(product => (
+            <ProductCard key={product.id} product={product as typeof mockProducts[0]} onAddToCart={addToCart} />
+          ))}
+        </div>
+      )}
 
-      {filtered.length === 0 && (
+      {!loading && filtered.length === 0 && (
         <div className="bg-white rounded-2xl p-12 text-center shadow-sm border border-gray-100">
           <Search className="w-12 h-12 text-gray-300 mx-auto mb-3" />
           <p className="text-gray-500">No products found matching your criteria.</p>
