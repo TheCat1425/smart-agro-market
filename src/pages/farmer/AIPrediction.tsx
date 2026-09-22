@@ -235,7 +235,7 @@ export default function AIPrediction() {
             <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
             <XAxis dataKey="month" fontSize={12} tickLine={false} axisLine={false} />
             <YAxis fontSize={12} tickLine={false} axisLine={false} tickFormatter={(v) => `৳${v}`} />
-            <Tooltip formatter={(value: number) => [`৳${value}`, commodity?.name || '']} />
+            <Tooltip formatter={(value) => [`৳${Number(value)}`, commodity?.name || '']} />
             <ReferenceLine x="Sep" stroke="#94a3b8" strokeDasharray="3 3" label={{ value: 'Today', position: 'top', fontSize: 11, fill: '#94a3b8' }} />
             <Area type="monotone" dataKey={commodityKey} stroke="#16a34a" strokeWidth={2} fill="url(#colorPrice)" dot={{ fill: '#16a34a', r: 4 }} />
           </AreaChart>
